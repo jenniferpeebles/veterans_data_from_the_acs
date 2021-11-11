@@ -1,0 +1,1915 @@
+---
+title: "Summary report on Census data about veterans"
+author: "Jennifer Peebles for The Atlanta Journal-Constitution"
+date: "10/9/2021"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+
+# Let's load a ton of libraries. Many of these are probably duplicative and are included in the tidyverse package. My apologies. 
+library(tidyverse)
+library(knitr)
+library(stringr)
+library(dplyr) # in tidyverse
+library(ggplot2)
+library(swirl)
+library(digest)
+library(magrittr)
+library(tidycensus) # for getting Census data from the Census API
+options(scipen = 999) # this will stop R from putting big numbers into scientific notation. 
+
+# Plug in your Census API key here between the quote marks
+census_api_key("YOUR_CENSUS_API_KEY_GOES_HERE")
+
+# This knit_hooks item includes the comma as the thousand separator in the inline code snippet numbers. 
+# More on this at https://stackoverflow.com/questions/18965637/set-global-thousand-separator-on-knitr
+knit_hooks$set(inline = function(x) {
+  prettyNum(x, big.mark=",")
+})
+knitr::opts_chunk$set(echo = TRUE)
+
+options(digits=1)
+```
+
+```{r some_preparation_before_we_go_further, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Get R to tell you what your working directory is. 
+getwd()
+
+# If you have a hankering to change your working directory, you can un-comment this next line and plop in the file path. Remember to make sure to use forward slashes, or else R will read the slashes as escape characters!
+# setwd("my_file_path_here")
+
+# Plug in the year here. 
+our_year <- 2019
+
+# Plug in the name of your state here -- the full name, no abbreviations, capitalize correctly. If you live in D.C., put "District of Columbia." If you live in Puerto Rico, put "Puerto Rico" as you normally would. 
+my_state <- "Georgia"
+
+# This next line will take the name of our state and turn it into a string that can be used in a regular expression in certain instances in the code. 
+my_state_regexp_string <- paste0(my_state, "$", collapse="") %>% print()
+
+```
+
+```{r total_veteran_population_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Let's start by pulling down the variables for the 2019 and 2010 ACS. 
+
+v19 <- load_variables(2019, "acs5", cache = TRUE)
+
+v10 <- load_variables(2010, "acs5", cache = TRUE)
+
+# Now, let's pull info about the total veteran population for the U.S. We're going to first look at ACS table B21001. This looks at veterans as a share of the civilian population 18 and over. 
+
+# The variable for the estimated number of civilians 18 and over is B21001_001. B21001_002 is the estimated number of veterans in that larger group. 
+
+# We'll use tidycensus to pull down the numbers we need from the Census API. Let's get the nationwide figures first. 
+
+us_total_vets <- get_acs(geography = "US", year = our_year, survey = "acs5", variables = c("B21001_001", "B21001_002"), geometry = FALSE)  %>% select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>%  print()
+
+us_total_vets <- us_total_vets %>%  rename("total_pop18nover"=B21001_001, "vet_pop"=B21001_002) %>%    mutate(pct_vet = ((vet_pop/total_pop18nover)*100)) %>%  print()
+
+```
+
+## Overall summary
+
+All data in this summary comes from the `r our_year` 5-year American Community Survey and was pulled down from the Census Bureau's computers via the Census' Application Programming Interface (API) using the [R programming language](https://en.wikipedia.org/wiki/R_(programming_language)) and the R add-on package called [tidycensus](https://walker-data.com/tidycensus/) by Kyle Walker. Among numerous other packages, this script also relies heavily on packages that are part of the [tidyverse](https://www.tidyverse.org/) family created by Hadley Wickham et al. Thank-you to all the folks who authored all that code and keep it maintained!
+
+## Total veteran population
+
+#### In the U.S.
+
+The U.S. has `r us_total_vets$total_pop18nover` people who are 18 and over, according to estimates from the 2019 5-year American Community Survey. 
+
+Of that group, `r us_total_vets$vet_pop` are veterans, the ACS says. That's `r us_total_vets$pct_vet`%. 
+
+
+```{r total_vet_population_states, eval=TRUE, echo=FALSE, include=FALSE}
+
+# So, we've done the national-level data. Now, let's get the state-by-state totals on total vets. 
+
+all_states_total_vets <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = c("B21001_001", "B21001_002"), geometry = FALSE)  %>% select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>%  print()
+
+all_states_total_vets <- all_states_total_vets %>%  rename("total_pop18nover"=B21001_001, "vet_pop"=B21001_002) %>%    mutate(pct_vet = ((vet_pop/total_pop18nover)*100)) %>%  print()
+
+all_states_total_vets$rank <- rank(-all_states_total_vets$pct_vet, na.last=TRUE, ties.method = "min") %>%  print()
+
+my_state_total_vets <- all_states_total_vets %>%  filter(str_detect(NAME, my_state)) %>%  print()
+
+# So, where does your state rank among the 50 states in its percentage of overall veterans? Keep in mind, I think this table includes all 50 states plus the District of Columbia and Puerto Rico, so the last position in the list is actually No. 52.  
+
+# In the next section, we'll pull total veteran population by county for our state. 
+
+```
+
+#### In `r my_state`
+
+In the 2019 5-year ACS, `r my_state` had a population 18 and over of `r my_state_total_vets$total_pop18nover`. Of that group, `r my_state_total_vets$vet_pop` were veterans. That's about `r my_state_total_vets$pct_vet`%. `r my_state` ranked `r my_state_total_vets$rank`th of the 50 states, DC and Puerto Rico for its percentage of veterans. 
+
+
+```{r total_vet_population_counties, eval=TRUE, echo=FALSE, include=FALSE}
+
+# So, let's look at counties ranked nationally for total vet population.
+
+all_county_total_vets <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = c("B21001_001", "B21001_002"), geometry = FALSE) %>%  select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>%  print()
+
+all_county_total_vets <- all_county_total_vets %>%  rename("total_pop18nover"=B21001_001, "vet_pop"=B21001_002) %>%    mutate(pct_vet = ((vet_pop/total_pop18nover)*100)) %>%  print()
+
+all_county_total_vets$rank_in_total_vet_pop <- rank(-all_county_total_vets$pct_vet, na.last = TRUE, ties.method = c("min")) %>%  print()
+
+my_state_counties_total_vets <- all_county_total_vets %>%  filter(str_detect(NAME, my_state)) %>% print() 
+
+# Here's something on my to-do list: I want to show each county not just by rank but by percentile. 
+  
+# More about dplyr's slice functions at https://dplyr.tidyverse.org/reference/slice.html
+top_counties_my_state_vets <- my_state_counties_total_vets %>% rename("County"=NAME, "Total population 18 and over"=total_pop18nover, "Veteran population"=vet_pop, "Percent of population 18 and over who are veterans"=pct_vet, "Rank (nationally) in veteran population"=rank_in_total_vet_pop) %>% select(-GEOID) %>% slice_max(`Percent of population 18 and over who are veterans`, n=5) %>% print()
+
+bottom_counties_my_state_vets <- my_state_counties_total_vets %>% rename("County"=NAME, "Total population 18 and over"=total_pop18nover, "Veteran population"=vet_pop, "Percent of population 18 and over who are veterans"=pct_vet, "Rank (nationally) in veteran population"=rank_in_total_vet_pop) %>% select(-GEOID) %>% slice_min(`Percent of population 18 and over who are veterans`, n=5) %>% arrange(-desc(`Rank (nationally) in veteran population`)) %>% print()
+
+```
+## `r my_state` counties by total vets
+
+It's interesting to see which counties have the highest concentrations of veterans. Many of the counties at the top of the list are near military bases. 
+
+#### Highest percentages
+
+`r knitr::kable(top_counties_my_state_vets)`
+
+#### Lowest percentages
+
+`r knitr::kable(bottom_counties_my_state_vets)`
+
+
+```{r total_vet_population_places, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, let's look at total veteran population by "place." We'll remove the Census-designated places (CDPs) from the data in hopes we get a set of just cities and towns. We'll also filter down to places with at least 100 residents. 
+
+all_place_total_vets <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = c("B21001_001", "B21001_002"), geometry = FALSE) %>%  select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>%  filter(!str_detect(NAME, "CDP")) %>%  filter(B21001_001>=100) %>% print()
+
+all_place_total_vets <- all_place_total_vets %>%  rename("total_pop18nover"=B21001_001, "vet_pop"=B21001_002) %>% mutate(pct_vet = ((vet_pop/total_pop18nover)*100)) %>% print()
+
+all_place_total_vets$rank_in_total_vet_pop <- rank(-all_place_total_vets$pct_vet, na.last = TRUE, ties.method = c("min")) %>%  print()
+
+my_state_places_total_vets <- all_place_total_vets %>% filter(str_detect(NAME, my_state_regexp_string)) %>%  print()
+
+top_places_my_state_vets <- my_state_places_total_vets %>% rename("Place"=NAME, "Total population 18 and over"=total_pop18nover, "Veteran population"=vet_pop, "Percent of population 18 and over who are veterans"=pct_vet, "Rank (nationally) in veteran population"=rank_in_total_vet_pop) %>% select(-GEOID) %>% slice_max(`Percent of population 18 and over who are veterans`, n=5) %>% print()
+
+```
+
+### `r my_state` places by total vets
+
+This query filtered down to just places in the Census data with 100 or more residents. It also excluded any place in the Census data identified as a "CDP" -- [Census-designated place](https://en.wikipedia.org/wiki/Census-designated_place), which generally means it's not incorporated. Hopefully this has removed most of the "places" in the data that were not incorporated cities or towns, but there are always some exceptions every year, so be aware of that. 
+
+`r knitr::kable(top_places_my_state_vets)`
+
+```{r vets_by_war_period_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# OK, let's move on now from that table. Let's move on to another ACS table that breaks down the veteran population by the war or wartime period in which they served (WWII, Korea, Vietnam, Gulf War, post-9/11, etc). This is going to be table B21002.
+
+# Our first variable in the table will be B21002_001, and the variables will go up sequentially all the way to _016. Yikes. 
+
+all_america_vets_by_war <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = c("B21001_001", "B21002_002", "B21002_003", "B21002_004", "B21002_005", "B21002_006", "B21002_007", "B21002_008", "B21002_009", "B21002_010", "B21002_011", "B21002_012", "B21002_013", "B21002_014", "B21002_015", "B21002_016"), geometry = FALSE) %>%  select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>% print()
+
+# The column names here are darn confusing. Let's rename them. 
+colnames(all_america_vets_by_war) <- c("geoid",
+                                    "name",
+                                    "total_population_vet_and_nonvet",
+                                    "post_911_service_only",
+                                    "post911andgulf_noviet",
+                                    "post911andgulf_andviet",
+                                    "gulfnotvietnam",
+                                    "gulf_and_vietnam",
+                                    "vietnam_only",
+                                    "viet_and_korea",
+                                    "vietkoreawwii",
+                                    "koreaonly",
+                                    "koreawwii_noviet",
+                                    "wwiionly",
+                                    "betweengulfandviet",
+                                    "bw_korea_and_viet",
+                                    "bw_wwii_and_korea",
+                                    "prewwii_only")
+
+# So, here's a tricky part. 
+
+# As a newspaper reporter, I have a strong sense that one question many reporters will say, "America is losing its 'Greatest Generation.' How many World War II-era veterans are left in my community?" The trouble is, the Census Bureau breaks vets up into all the above-mentioned categories, because there are so many combinations. 
+
+# To count the total number of WWII-era vets, we have to add up the numbers of people who served only in the WWII era, plus the number who served in both WWII and Korea, and then add everyone who served in WWII and Vietnam. Whew! And then we have to do the same combining for all the various wars -- Korea, Vietnam, 9/11.
+
+# So, time for some addition ... 
+
+all_america_vets_by_war2 <- all_america_vets_by_war %>%  mutate(wwii_service_any_combo = (wwiionly + koreawwii_noviet + vietkoreawwii), korea_service_any_combo = (koreawwii_noviet + koreaonly + vietkoreawwii + viet_and_korea), vietnam_service_any_combo = (vietkoreawwii + viet_and_korea + vietnam_only + gulf_and_vietnam + post911andgulf_andviet), gulf_service_any_combo = (gulf_and_vietnam + gulfnotvietnam + post911andgulf_andviet + post911andgulf_noviet), post_911_any_combo = (post911andgulf_andviet + post911andgulf_noviet + post_911_service_only)) %>% select(-geoid, -name)
+                                                      
+# Time to assign some nice, neat names that will make sense in English. 
+colnames(all_america_vets_by_war2) <- c("Total population 18 and over, veteran and non-veteran", #1
+                                        "Vets with Post-9-11 service only", #2
+                                        "Served in Gulf War and post-9-11", #3
+                                        "Served in Vietnam, Gulf War and post-9-11",  #4
+                                        "Gulf War service only", #5
+                                        "Vietnam and Gulf War service", #6 
+                                        "Vietnam War service only", #7
+                                        "Korea and Vietnam service", #8
+                                        "Served in WWII, Korea and Vietnam",
+                                        "Korean War service only",
+                                        "Served in World War II and Korean War",
+                                        "World War II service only",
+                                        "Served between Vietnam and the Gulf War",
+                                        "Served between Korea and Vietnam",
+                                        "Served between WWII and Korea",
+                                        "Pre-WWII service only",
+                                        "World War II service, alone or in combination with any other war",
+                                        "Korean War service, alone or in combination with any other war",
+                                        "Vietnam War service, alone or in combination with any other war",
+                                        "Gulf War service, alone or in combination with any other war",
+                                        "Post-9-11 service, alone or in combination with any other war")
+
+# The t command transposes the table. 
+us_all_vets_by_war_kable <- t(all_america_vets_by_war2)
+
+```
+
+## Veterans by war or period of service
+
+### In the U.S. 
+
+Note: This only groups the veterans by the period in which they served. For instance, a veteran who is reported in the Census data as having "Vietnam War-era service" only means they served in the military during the time of the Vietnam War; it doesn't mean they actually ever were physically sent to Vietnam.
+
+Veterans in the categories tallied by the Census Bureau aren't duplicated from period to period. But because our initial audience here is one of journalists, we've taken the liberty of creating five new categories that add up the total number of vets who served in the five major wars since WWII: WWII, Korea, Vietnam, the Gulf War, and post-9/11. Those five categories all end with the phrase "alone or in combination with any other war." Be aware that vets can be duplicated between those five categories. 
+
+`r knitr::kable(us_all_vets_by_war_kable)`
+
+
+```{r vets_by_war_period_states, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to repeat the same steps, but this time, at the state level. 
+
+all_state_vets_by_war <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = c("B21001_001", "B21002_002", "B21002_003", "B21002_004", "B21002_005", "B21002_006", "B21002_007", "B21002_008", "B21002_009", "B21002_010", "B21002_011", "B21002_012", "B21002_013", "B21002_014", "B21002_015", "B21002_016"), geometry = FALSE) %>% select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>% print()
+
+colnames(all_state_vets_by_war) <- c("geoid",
+                                    "name",
+                                    "total_population_vet_and_nonvet",
+                                    "post_911_service_only",
+                                    "post911andgulf_noviet",
+                                    "post911andgulf_andviet",
+                                    "gulfnotvietnam",
+                                    "gulf_and_vietnam",
+                                    "vietnam_only",
+                                    "viet_and_korea",
+                                    "vietkoreawwii",
+                                    "koreaonly",
+                                    "koreawwii_noviet",
+                                    "wwiionly",
+                                    "betweengulfandviet",
+                                    "bw_korea_and_viet",
+                                    "bw_wwii_and_korea",
+                                    "prewwii_only")
+
+# Let's add up the major wars again ... 
+all_state_vets_by_war2 <- all_state_vets_by_war %>%  mutate(wwii_service_any_combo = (wwiionly + koreawwii_noviet + vietkoreawwii), korea_service_any_combo = (koreawwii_noviet + koreaonly + vietkoreawwii + viet_and_korea), vietnam_service_any_combo = (vietkoreawwii + viet_and_korea + vietnam_only + gulf_and_vietnam + post911andgulf_andviet), gulf_service_any_combo = (gulf_and_vietnam + gulfnotvietnam + post911andgulf_andviet + post911andgulf_noviet), post_911_any_combo = (post911andgulf_andviet + post911andgulf_noviet + post_911_service_only))
+
+all_state_vets_by_war_period_totals <- all_state_vets_by_war2
+
+my_state_vets_by_war_period_totals <- all_state_vets_by_war_period_totals %>% filter(str_detect(name, my_state_regexp_string)) %>% select(-geoid, -name) %>% print()
+
+colnames(my_state_vets_by_war_period_totals) <- c("Total population 18 and over, veteran and non-veteran", #1
+                                        "Vets with Post-9-11 service only", #2
+                                        "Served in Gulf War and post-9-11", #3
+                                        "Served in Vietnam, Gulf War and post-9-11",  #4
+                                        "Gulf War service only", #5
+                                        "Vietnam and Gulf War service", #6 
+                                        "Vietnam War service only", #7
+                                        "Korea and Vietnam service", #8
+                                        "Served in WWII, Korea and Vietnam",
+                                        "Korean War service only",
+                                        "Served in World War II and Korean War",
+                                        "World War II service only",
+                                        "Served between Vietnam and the Gulf War",
+                                        "Served between Korea and Vietnam",
+                                        "Served between WWII and Korea",
+                                        "Pre-WWII service only",
+                                        "World War II service, alone or in combination with any other war",
+                                        "Korean War service, alone or in combination with any other war",
+                                        "Vietnam War service, alone or in combination with any other war",
+                                        "Gulf War service, alone or in combination with any other war",
+                                        "Post-9-11 service, alone or in combination with any other war")
+
+
+# We're going to have to do some woogie-ing with the columns in the table to get everything lined up right for presentation. ... 
+my_state_vets_by_war_period_totals_kable1 <- t(my_state_vets_by_war_period_totals) %>% print()
+
+my_state_vets_by_war_period_totals_kable2 <- data.frame(my_state_vets_by_war_period_totals_kable1)
+
+colnames(my_state_vets_by_war_period_totals_kable2) <- c("Value")
+
+my_state_vets_by_war_period_totals_kable2$Period <- rownames(my_state_vets_by_war_period_totals_kable2)
+
+my_state_vets_by_war_period_totals_kable3 <-my_state_vets_by_war_period_totals_kable2[,c(2,1)]
+
+rownames(my_state_vets_by_war_period_totals_kable3) <- NULL
+
+my_state_vets_by_war_period_totals_kable <-  my_state_vets_by_war_period_totals_kable3
+
+all_state_vets_by_war_pcts <- all_state_vets_by_war2 %>% mutate(across(4:23, ~ (.x/all_state_vets_by_war2$total_population_vet_and_nonvet))*100)
+
+my_state_vets_by_war_period_pcts <- all_state_vets_by_war_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>% select(-geoid, -name) %>% print()
+
+colnames(my_state_vets_by_war_period_pcts) <- colnames(my_state_vets_by_war_period_totals) <- c("Total population 18 and over, veteran and non-veteran", #1
+                                        "Vets with Post-9-11 service only", #2
+                                        "Served in Gulf War and post-9-11", #3
+                                        "Served in Vietnam, Gulf War and post-9-11",  #4
+                                        "Gulf War service only", #5
+                                        "Vietnam and Gulf War service", #6 
+                                        "Vietnam War service only", #7
+                                        "Korea and Vietnam service", #8
+                                        "Served in WWII, Korea and Vietnam",
+                                        "Korean War service only",
+                                        "Served in World War II and Korean War",
+                                        "World War II service only",
+                                        "Served between Vietnam and the Gulf War",
+                                        "Served between Korea and Vietnam",
+                                        "Served between WWII and Korea",
+                                        "Pre-WWII service only",
+                                        "World War II service, alone or in combination with any other war",
+                                        "Korean War service, alone or in combination with any other war",
+                                        "Vietnam War service, alone or in combination with any other war",
+                                        "Gulf War service, alone or in combination with any other war",
+                                        "Post-9-11 service, alone or in combination with any other war")
+
+my_state_vets_by_war_period_pcts_kable1 <- t(my_state_vets_by_war_period_pcts) %>% print()
+
+my_state_vets_by_war_period_pcts_kable2 <- data.frame(my_state_vets_by_war_period_pcts_kable1)
+
+my_state_vets_by_war_period_pcts_kable2$Item <- rownames(my_state_vets_by_war_period_pcts_kable2) %>% print()
+
+colnames(my_state_vets_by_war_period_pcts_kable2) <- c("Value", "Item")
+
+my_state_vets_by_war_period_pcts_kable2 <- my_state_vets_by_war_period_pcts_kable2[,c(2,1)]
+
+rownames(my_state_vets_by_war_period_pcts_kable2) <- NULL
+
+my_state_vets_by_war_period_pcts_kable <- my_state_vets_by_war_period_pcts_kable2 %>% filter(!str_detect(Item, "Total population 18")) %>% print()
+
+all_state_vets_by_war_rank <- all_state_vets_by_war_pcts %>%  mutate(across(4:23, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+my_state_vets_by_war_period_rank <- all_state_vets_by_war_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% select(-geoid,-name, -total_population_vet_and_nonvet) %>% print()
+
+colnames(my_state_vets_by_war_period_rank)<- c(
+                                        "Vets with Post-9-11 service only", #2
+                                        "Served in Gulf War and post-9-11", #3
+                                        "Served in Vietnam, Gulf War and post-9-11",  #4
+                                        "Gulf War service only", #5
+                                        "Vietnam and Gulf War service", #6 
+                                        "Vietnam War service only", #7
+                                        "Korea and Vietnam service", #8
+                                        "Served in WWII, Korea and Vietnam",
+                                        "Korean War service only",
+                                        "Served in World War II and Korean War",
+                                        "World War II service only",
+                                        "Served between Vietnam and the Gulf War",
+                                        "Served between Korea and Vietnam",
+                                        "Served between WWII and Korea",
+                                        "Pre-WWII service only",
+                                        "World War II service, alone or in combination with any other war",
+                                        "Korean War service, alone or in combination with any other war",
+                                        "Vietnam War service, alone or in combination with any other war",
+                                        "Gulf War service, alone or in combination with any other war",
+                                        "Post-9-11 service, alone or in combination with any other war")
+
+my_state_vets_by_war_period_rank_kable1 <- t(my_state_vets_by_war_period_rank) %>% print()
+
+my_state_vets_by_war_period_rank_kable2 <- data.frame(my_state_vets_by_war_period_rank_kable1)
+
+my_state_vets_by_war_period_rank_kable2$Period <- rownames(my_state_vets_by_war_period_rank_kable2)
+
+my_state_vets_by_war_period_rank_kable3 <- my_state_vets_by_war_period_rank_kable2[,c(2,1)]
+
+colnames(my_state_vets_by_war_period_rank_kable3) <- c("Period", "Rank nationally")
+
+rownames(my_state_vets_by_war_period_rank_kable3) <- NULL
+
+my_state_vets_by_war_period_rank_kable <- my_state_vets_by_war_period_rank_kable3
+
+```
+
+### In `r my_state`
+
+#### Raw totals
+
+Note: This only groups the veterans by the period in which they served. A veteran who is reported in the Census data as having "Vietnam War-era service" only means they served in the military during the time of the Vietnam War; it doesn't mean they actually ever were physically sent to Vietnam. 
+
+All data here from the 2019 5-year ACS. 
+
+`r knitr::kable(my_state_vets_by_war_period_totals_kable, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By percentage of the state's total population 18 and over
+
+`r knitr::kable(my_state_vets_by_war_period_pcts_kable, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### `r my_state`'s rank among the 50 states
+
+`r knitr::kable(my_state_vets_by_war_period_rank_kable, digits=1, col.names=c("Period","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+```{r vets_by_war_period_county, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, we breakdown the veterans by wartime period of service by county. 
+
+all_county_vets_by_war <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = c("B21001_001", "B21002_002", "B21002_003", "B21002_004", "B21002_005", "B21002_006", "B21002_007", "B21002_008", "B21002_009", "B21002_010", "B21002_011", "B21002_012", "B21002_013", "B21002_014", "B21002_015", "B21002_016"), geometry = FALSE) %>% select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>% print()
+
+colnames(all_county_vets_by_war) <- c("geoid",
+                                    "name",
+                                    "total_population_vet_and_nonvet",
+                                    "post_911_service_only",
+                                    "post911andgulf_noviet",
+                                    "post911andgulf_andviet",
+                                    "gulfnotvietnam",
+                                    "gulf_and_vietnam",
+                                    "vietnam_only",
+                                    "viet_and_korea",
+                                    "vietkoreawwii",
+                                    "koreaonly",
+                                    "koreawwii_noviet",
+                                    "wwiionly",
+                                    "betweengulfandviet",
+                                    "bw_korea_and_viet",
+                                    "bw_wwii_and_korea",
+                                    "prewwii_only")
+
+all_county_vets_by_war2 <- all_county_vets_by_war %>%  mutate(wwii_service_any_combo = (wwiionly + koreawwii_noviet + vietkoreawwii), korea_service_any_combo = (koreawwii_noviet + koreaonly + vietkoreawwii + viet_and_korea), vietnam_service_any_combo = (vietkoreawwii + viet_and_korea + vietnam_only + gulf_and_vietnam + post911andgulf_andviet), gulf_service_any_combo = (gulf_and_vietnam + gulfnotvietnam + post911andgulf_andviet + post911andgulf_noviet), post_911_any_combo = (post911andgulf_andviet + post911andgulf_noviet + post_911_service_only))
+
+all_county_vets_by_war_totals <- all_county_vets_by_war2
+
+my_state_county_vets_by_war_totals <- all_county_vets_by_war_totals %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_county_vets_by_war3 <- all_county_vets_by_war2 %>% mutate(across(4:23, ~ (.x/all_county_vets_by_war$total_population_vet_and_nonvet))*100)
+
+all_county_vets_by_war_pcts <- all_county_vets_by_war3
+
+my_state_county_vets_by_war_pcts <- all_county_vets_by_war_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_county_vets_by_war4 <- all_county_vets_by_war3 %>%  mutate(across(4:23, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  print()
+
+colnames(all_county_vets_by_war4) <- c("geoid",
+                                    "name",
+"total_population_vet_and_nonvet",
+                                    "post_911_service_only",
+                                    "post911andgulf_noviet",
+                                    "post911andgulf_andviet",
+                                    "gulfnotvietnam",
+                                    "gulf_and_vietnam",
+                                    "vietnam_only",
+                                    "viet_and_korea",
+                                    "vietkoreawwii",
+                                    "koreaonly",
+                                    "koreawwii_noviet",
+                                    "wwiionly",
+                                    "betweengulfandviet",
+                                    "bw_korea_and_viet",
+                                    "bw_wwii_and_korea",
+                                    "prewwii_only",
+                                    "wwii_service_any_combo",
+                                    "korea_service_any_combo",
+                                    "vietnam_service_any_combo",
+                                    "gulf_service_any_combo",
+                                    "post_911_any_combo"
+)
+
+all_county_vets_by_war_rank <- all_county_vets_by_war4
+
+my_state_county_vets_by_war_rank <- all_county_vets_by_war_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+which((my_state_county_vets_by_war_rank[2:23] <= 5), arr.ind=TRUE)
+
+my_state_county_vets_by_war_rank[,c(2,4)] %>% slice_min(post_911_service_only, n =5)
+
+my_state_county_vets_by_war_rank[,c(2,5)] %>% slice_min(post911andgulf_noviet, n =5)
+
+my_state_county_vets_by_war_rank[,c(2,6)] %>% slice_min(post911andgulf_andviet, n =5)
+
+my_state_county_vets_by_war_rank[,c(2,23)] %>% slice_min(post_911_any_combo, n =5)
+
+```
+
+
+### Veterans in `r my_state` counties by war or period of service
+
+Ordered by their national rank 
+
+#### By veterans with post-9/11 service only
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(post_911_service_only, n =5) %>%  select(name, post_911_service_only), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets with both Gulf War and post-9/11 service
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(post911andgulf_noviet, n =5) %>% select(name, post911andgulf_noviet), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served in the Vietnam era, the Gulf War and post-9/11
+Note: This is not a huge group of people nationally to start with. The American involvement in Vietnam ended in about 1973, and the Sept. 11 terrorist attacks were 28 years later. 
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(post911andgulf_andviet, n =5) %>% select(name, post911andgulf_andviet), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served since 9/11, alone or in combination with any other wartime period
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(post_911_any_combo, n =5) %>% select(name, post_911_any_combo), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served in the Gulf War period, alone or in combination with any other wartime period
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(gulf_service_any_combo, n =5) %>% select(name, gulf_service_any_combo), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served in the Vietnam War period, alone or in combination with any other wartime period
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(vietnam_service_any_combo, n =5) %>% select(name, vietnam_service_any_combo), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served in the Korean War period, alone or in combination with any other wartime period
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(korea_service_any_combo, n =5) %>% select(name, korea_service_any_combo), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+#### By vets who served in the World War II era, alone or in combination with any other wartime period
+
+`r kable(my_state_county_vets_by_war_rank %>% slice_min(wwii_service_any_combo, n =5) %>% select(name, wwii_service_any_combo), digits=1, col.names=c("County","Rank nationally"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+
+```{r vets_by_war_period_place, eval=TRUE, echo=FALSE, include=FALSE}
+
+all_places_vets_by_war <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = c("B21001_001", "B21002_002", "B21002_003", "B21002_004", "B21002_005", "B21002_006", "B21002_007", "B21002_008", "B21002_009", "B21002_010", "B21002_011", "B21002_012", "B21002_013", "B21002_014", "B21002_015", "B21002_016"), geometry = FALSE) %>% select(-moe) %>%  pivot_wider(names_from=variable, values_from = estimate, names_sep="_") %>% print()
+
+colnames(all_places_vets_by_war) <- c("geoid",
+                                    "name",
+                                    "total_population_vet_and_nonvet",
+                                    "post_911_service_only",
+                                    "post911andgulf_noviet",
+                                    "post911andgulf_andviet",
+                                    "gulfnotvietnam",
+                                    "gulf_and_vietnam",
+                                    "vietnam_only",
+                                    "viet_and_korea",
+                                    "vietkoreawwii",
+                                    "koreaonly",
+                                    "koreawwii_noviet",
+                                    "wwiionly",
+                                    "betweengulfandviet",
+                                    "bw_korea_and_viet",
+                                    "bw_wwii_and_korea",
+                                    "prewwii_only")
+
+# Let's add up the major wars (yes, again)
+all_places_vets_by_war2 <- all_places_vets_by_war %>%  mutate(wwii_service_any_combo = (wwiionly + koreawwii_noviet + vietkoreawwii), korea_service_any_combo = (koreawwii_noviet + koreaonly + vietkoreawwii + viet_and_korea), vietnam_service_any_combo = (vietkoreawwii + viet_and_korea + vietnam_only + gulf_and_vietnam + post911andgulf_andviet), gulf_service_any_combo = (gulf_and_vietnam + gulfnotvietnam + post911andgulf_andviet + post911andgulf_noviet), post_911_any_combo = (post911andgulf_andviet + post911andgulf_noviet + post_911_service_only))
+
+all_places_vets_by_war_totals <- all_places_vets_by_war2
+
+all_places_vets_by_war_pcts <- all_places_vets_by_war2 %>% mutate(across(4:23, ~ (.x/all_places_vets_by_war2$total_population_vet_and_nonvet))*100)
+
+my_state_places_vets_by_war_pcts <- all_places_vets_by_war_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_places_vets_by_war_rank <- all_places_vets_by_war_pcts %>%  mutate(across(4:23, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+my_state_places_vets_by_war_rank <- all_places_vets_by_war_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% select(-geoid, -total_population_vet_and_nonvet)%>% print()
+
+```
+
+This script also includes data on period of wartime service by place (generally a city or town). Because there are so many places in many states, a and more than a dozen wartime service categories in the data, those aren't included in this summary. But the script can be used to crunch and view that data. 
+
+
+```{r vet_status_by_disability_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, let's move on to another table on a different element of veterans data: Veteran status by disability. This will be table C21007. 
+
+# Our variables will start at C21007_001 and count up through _031. 
+
+us_vets_by_disab_stat <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = c("C21007_001", "C21007_002", "C21007_003", "C21007_004", "C21007_005", "C21007_006", "C21007_007", "C21007_008", "C21007_009", "C21007_010", "C21007_011", "C21007_012", "C21007_013", "C21007_014", "C21007_015", "C21007_016", "C21007_017", "C21007_018", "C21007_019", "C21007_020", "C21007_021", "C21007_022", "C21007_023", "C21007_024", "C21007_025", "C21007_026", "C21007_027", "C21007_028", "C21007_029", "C21007_030", "C21007_031"), geometry = FALSE) %>%  select(-moe)  %>%  print()
+
+disab_stat_var <- v19 %>%  filter(str_detect(concept, "VETERAN")&str_detect(name, "C21007")) %>%  print()
+
+us_vets_by_disab_stat2 <- merge(x = us_vets_by_disab_stat, y=disab_stat_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+us_vets_by_disab_stat3 <- us_vets_by_disab_stat2 %>% select(-concept, -variable) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+us_vets_by_disab_stat4 <- janitor::clean_names(us_vets_by_disab_stat3) %>%  select(-geoid) %>%  print()
+
+us_vets_by_disab_stat_colnames <- colnames(us_vets_by_disab_stat4)
+
+colnames(us_vets_by_disab_stat4) <- gsub("estimate", "Est.", colnames(us_vets_by_disab_stat4))
+
+colnames(us_vets_by_disab_stat4) <- gsub("18_to_64_years", "18_to_64", colnames(us_vets_by_disab_stat4)) %>%  print()
+
+colnames(us_vets_by_disab_stat4) <- gsub("in_the_past_12_months", "in_past_12_mos", colnames(us_vets_by_disab_stat4)) %>%  print()
+
+colnames(us_vets_by_disab_stat4) <- gsub("with_a_disability", "w_disability", colnames(us_vets_by_disab_stat4)) %>%  print()
+
+colnames(us_vets_by_disab_stat4) <- gsub("no_disability", "no_disability", colnames(us_vets_by_disab_stat4)) %>%  print()
+
+colnames(us_vets_by_disab_stat4) <- gsub("65_years_and_over", "65_and_over", colnames(us_vets_by_disab_stat4)) %>%  print()
+
+us_vets_by_disab_stat_totals <- us_vets_by_disab_stat4 %>% print()
+
+colnames(us_vets_by_disab_stat_totals) <- gsub("_", " ", colnames(us_vets_by_disab_stat_totals)) %>%  print()
+
+us_vets_by_disab_stat_totals %>% select(-name) %>% print()
+
+t(us_vets_by_disab_stat_totals %>% select(-name)) %>% print()
+
+us_vets_by_disab_stat5 <- us_vets_by_disab_stat4 %>% mutate(across(4:17, ~ (.x/us_vets_by_disab_stat4$Est._total_18_to_64)*100)) %>% print()
+                                                            
+us_vets_by_disab_stat6 <- us_vets_by_disab_stat5 %>% mutate(across(19:32, ~ (.x/us_vets_by_disab_stat5$Est._total_65_and_over)*100)) %>% print()
+
+us_vets_by_disab_stat8 <- us_vets_by_disab_stat6
+
+names(us_vets_by_disab_stat8)[c(-1:-3,-18)] <- gsub("Est._total", "Pct.", names(us_vets_by_disab_stat8)[c(-1:-3,-18)]) %>%  print()
+
+us_vets_by_disab_stat_pcts <- us_vets_by_disab_stat8 %>% select(-name) %>% print()
+
+colnames(us_vets_by_disab_stat_pcts) <- gsub("_", " ", colnames(us_vets_by_disab_stat_pcts)) %>%  print()
+
+transpose_us_vets_by_disab_stat_pcts1 <- t(us_vets_by_disab_stat_pcts) %>% print()
+
+transpose_us_vets_by_disab_stat_pcts2 <- data.frame(transpose_us_vets_by_disab_stat_pcts1)
+
+transpose_us_vets_by_disab_stat_pcts2$Item <- rownames(transpose_us_vets_by_disab_stat_pcts2) %>% print()
+
+rownames(transpose_us_vets_by_disab_stat_pcts2) <- NULL
+
+transpose_us_vets_by_disab_stat_pcts2 <- transpose_us_vets_by_disab_stat_pcts2[,c(2:1)] %>% print()
+
+colnames(transpose_us_vets_by_disab_stat_pcts2) <- c("Item", "Value") %>% print()
+
+transpose_us_vets_by_disab_stat_pcts <- transpose_us_vets_by_disab_stat_pcts2
+
+transpose_us_vets_by_disab_stat_pcts %>% filter(!str_detect(Item, "Est.")) %>% print()
+
+```
+
+## Veterans by disability status
+
+### In the U.S.: Totals
+
+The Census Bureau provides estimated totals for vets 18 to 64 and those 65 and older; it further breaks each age group down into those who have been below, or at or above, the poverty level in the past 12 months. It further breaks down those subgroups by vets with and without disability. This data is from the 2019 5-year ACS. 
+
+Note that the estimated total here, and denominator by which all these percentages was calculated, is not the total U.S. population but is the total U.S. civilian population 18 years and over for whom poverty status is determined. That's about 244 million people. 
+
+`r kable(t(us_vets_by_disab_stat_totals %>% select(-name)))`
+
+
+### In the U.S.: Percentages
+
+Each subgroup here is shown as a percentage of their larger age group.
+
+`r kable(transpose_us_vets_by_disab_stat_pcts, col.names=NULL)`
+
+
+```{r veterans_by_disability_status_states, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to disability status data, carved up by state. 
+
+all_states_vets_by_disab_stat <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = c("C21007_001", "C21007_002", "C21007_003", "C21007_004", "C21007_005", "C21007_006", "C21007_007", "C21007_008", "C21007_009", "C21007_010", "C21007_011", "C21007_012", "C21007_013", "C21007_014", "C21007_015", "C21007_016", "C21007_017", "C21007_018", "C21007_019", "C21007_020", "C21007_021", "C21007_022", "C21007_023", "C21007_024", "C21007_025", "C21007_026", "C21007_027", "C21007_028", "C21007_029", "C21007_030", "C21007_031"), geometry = FALSE) %>%  select(-moe)  %>%  print()
+
+all_states_vets_by_disab_stat2 <- merge(x = all_states_vets_by_disab_stat, y=disab_stat_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_states_vets_by_disab_stat3 <- all_states_vets_by_disab_stat2 %>% select(-concept, -variable) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_states_vets_by_disab_stat4 <- janitor::clean_names(all_states_vets_by_disab_stat3) %>%  select(-geoid) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("estimate", "Est.", colnames(all_states_vets_by_disab_stat4))
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("18_to_64_years", "18 to 64", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("in_the_past_12_months", "in past 12 mos", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("with_a_disability", "w disability", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("no_disability", "no disability", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("65_years_and_over", "65 and over", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_states_vets_by_disab_stat4) <- gsub("_", " ", colnames(all_states_vets_by_disab_stat4)) %>%  print()
+
+all_states_vets_by_disab_stat_totals <- all_states_vets_by_disab_stat4 %>% print()
+
+my_state_vets_by_disab_stat_totals <- all_states_vets_by_disab_stat_totals %>% filter(str_detect(name, my_state_regexp_string)) %>% select(-name) %>% print()
+
+all_states_vets_by_disab_stat5 <- all_states_vets_by_disab_stat4 %>% mutate(across(4:17, ~ (.x/all_states_vets_by_disab_stat4$`Est. total 18 to 64`)*100))
+                                                            
+all_states_vets_by_disab_stat6 <- all_states_vets_by_disab_stat5 %>% mutate(across(19:32, ~ (.x/all_states_vets_by_disab_stat5$`Est. total 65 and over`)*100))
+
+all_states_vets_by_disab_stat8 <- all_states_vets_by_disab_stat6
+
+names(all_states_vets_by_disab_stat8)[c(-1:-3,-18)] <- gsub("Est. total", "Pct.", names(all_states_vets_by_disab_stat8)[c(-1:-3,-18)]) %>%  print()
+
+my_state_vets_by_disab_stat_pcts <- all_states_vets_by_disab_stat8 %>% filter(str_detect(name, my_state_regexp_string)) %>%  select(-name) %>% print()
+
+my_state_vets_by_disab_stat_rank <- all_states_vets_by_disab_stat8 %>%  mutate(across(c(4:17,19:32), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  filter(str_detect(name, my_state_regexp_string))  %>%  print()
+
+names(my_state_vets_by_disab_stat_rank)[c(-1:-3,-18)] <- gsub("Pct.", "Rank nationally", names(my_state_vets_by_disab_stat_rank)[c(-1:-3,-18)]) %>%  print()
+
+```
+
+### In `r my_state`: Raw totals
+
+The Census Bureau provides estimated totals for vets 18-to-64 and those 65 and older; it further breaks each age group down into those who have been below, or at or above, the poverty level in the past 12 months. It further breaks down those subgroups by vets with and without disability. This data is from the 2019 5-year ACS. 
+
+Note that the estimated total here, and denominator by which all these percentages was calculated, is not the total U.S. population but is the total `r my_state` civilian population 18 years and over for whom poverty status is determined. That's about 7.6 million people. 
+
+`r kable(t(my_state_vets_by_disab_stat_totals))`
+
+### In `r my_state`: Percentages
+
+Each subgroup here is shown as a percentage of their larger age group.
+
+`r kable(t(my_state_vets_by_disab_stat_pcts))`
+
+### `r my_state`'s rank among the 50 states
+
+`r kable(t(my_state_vets_by_disab_stat_rank %>% select(-name)))`
+
+
+```{r veterans_by_disability_status_county, eval=TRUE, echo=FALSE, include=FALSE}
+
+all_county_vets_by_disab_stat <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = c("C21007_001", "C21007_002", "C21007_003", "C21007_004", "C21007_005", "C21007_006", "C21007_007", "C21007_008", "C21007_009", "C21007_010", "C21007_011", "C21007_012", "C21007_013", "C21007_014", "C21007_015", "C21007_016", "C21007_017", "C21007_018", "C21007_019", "C21007_020", "C21007_021", "C21007_022", "C21007_023", "C21007_024", "C21007_025", "C21007_026", "C21007_027", "C21007_028", "C21007_029", "C21007_030", "C21007_031"), geometry = FALSE) %>%  select(-moe)  %>%  print()
+
+all_county_vets_by_disab_stat2 <- merge(x = all_county_vets_by_disab_stat, y=disab_stat_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+
+all_county_vets_by_disab_stat3 <- all_county_vets_by_disab_stat2 %>% select(-concept, -variable) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_county_vets_by_disab_stat4 <- janitor::clean_names(all_county_vets_by_disab_stat3) %>%  select(-geoid) %>%  print()
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("estimate", "Est.", colnames(all_county_vets_by_disab_stat4))
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("18_to_64_years", "18 to 64", colnames(all_county_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("in_the_past_12_months", "in past 12 mos", colnames(all_county_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("with_a_disability", "w disability", colnames(all_county_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("no_disability", "no disability", colnames(all_county_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_county_vets_by_disab_stat4) <- gsub("65_years_and_over", "65 and over", colnames(all_county_vets_by_disab_stat4)) %>%  print()
+
+all_county_vets_by_disab_stat_totals <- all_county_vets_by_disab_stat4 %>% print()
+
+my_state_county_vets_by_disab_stat_totals <- all_county_vets_by_disab_stat_totals %>% filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+all_county_vets_by_disab_stat5 <- all_county_vets_by_disab_stat4 %>% mutate(across(5:10, ~ (.x/all_county_vets_by_disab_stat4$`Est._total_18 to 64_veteran`)*100))
+                                                            
+all_county_vets_by_disab_stat6 <- all_county_vets_by_disab_stat5 %>% mutate(across(12:17, ~ (.x/all_county_vets_by_disab_stat5$`Est._total_18 to 64_nonveteran`)*100))
+
+all_county_vets_by_disab_stat7 <- all_county_vets_by_disab_stat6 %>% mutate(across(20:25, ~ (.x/all_county_vets_by_disab_stat6$`Est._total_65 and over_veteran`)*100))
+
+all_county_vets_by_disab_stat8 <- all_county_vets_by_disab_stat7 %>% mutate(across(27:32, ~ (.x/all_county_vets_by_disab_stat7$`Est._total_65 and over_nonveteran`)*100))
+
+names(all_county_vets_by_disab_stat8)[c(-1:-4,-11,-18:-19,-26)] <- gsub("Est._total", "Pct.", names(all_county_vets_by_disab_stat8)[c(-1:-4,-11,-18:-19,-26)]) %>%  print()
+
+colnames(all_county_vets_by_disab_stat8) <- gsub("_", " ", colnames(all_county_vets_by_disab_stat8)) %>%  print()
+
+my_state_county_vets_by_disab_stat_pcts <- all_county_vets_by_disab_stat8 %>% filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+colnames(my_state_county_vets_by_disab_stat_pcts) <- gsub("_", " ", colnames(my_state_county_vets_by_disab_stat_pcts)) %>%  print()
+
+my_state_vets_by_disab_stat_rank <- all_county_vets_by_disab_stat8 %>%  mutate(across(c(5:10,12:17,20:25,27:32), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  filter(str_detect(name, my_state_regexp_string))  %>%  print()
+
+names(my_state_vets_by_disab_stat_rank)[c(-1:-4,-11,-18:-19,-26)] <- gsub("Pct.", "Rank nationally", names(my_state_vets_by_disab_stat_rank)[c(-1:-4,-11,-18:-19,-26)]) %>%  print()
+
+```
+
+```{r veterans_by_disability_status_place, eval=TRUE, echo=FALSE, include=FALSE}
+
+# TO_DO: NEED TO GO THROUGH THIS WHOLE SECTION. 
+
+all_place_vets_by_disab_stat <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = c("C21007_001", "C21007_002", "C21007_003", "C21007_004", "C21007_005", "C21007_006", "C21007_007", "C21007_008", "C21007_009", "C21007_010", "C21007_011", "C21007_012", "C21007_013", "C21007_014", "C21007_015", "C21007_016", "C21007_017", "C21007_018", "C21007_019", "C21007_020", "C21007_021", "C21007_022", "C21007_023", "C21007_024", "C21007_025", "C21007_026", "C21007_027", "C21007_028", "C21007_029", "C21007_030", "C21007_031"), geometry = FALSE) %>%  select(-moe)  %>%  print()
+
+all_place_vets_by_disab_stat2 <- merge(x = all_place_vets_by_disab_stat, y=disab_stat_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_place_vets_by_disab_stat3 <- all_place_vets_by_disab_stat2 %>% select(-concept, -variable) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_place_vets_by_disab_stat4 <- janitor::clean_names(all_place_vets_by_disab_stat3) %>%  select(-geoid) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("estimate", "est", colnames(all_place_vets_by_disab_stat4))
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("total", "tot", colnames(all_place_vets_by_disab_stat4)) 
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("18_to_64_years", "18t64", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("nonveteran", "nonvet", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("veteran", "vet", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("income", "inc", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("in_the_past_12_months", "past12mo", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("poverty_level", "pov", colnames(all_place_vets_by_disab_stat4)) %>% print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("with_a_disability", "w_dis", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("no_disability", "no_dis", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+colnames(all_place_vets_by_disab_stat4) <- gsub("65_years_and_over", "65nover", colnames(all_place_vets_by_disab_stat4)) %>%  print()
+
+all_place_vets_by_disab_stat5 <- all_place_vets_by_disab_stat4 %>% mutate(across(5:10, ~ (.x/all_place_vets_by_disab_stat4$est_tot_18t64_vet)*100))
+                                                            
+all_place_vets_by_disab_stat6 <- all_place_vets_by_disab_stat5 %>% mutate(across(12:17, ~ (.x/all_place_vets_by_disab_stat5$est_tot_18t64_nonvet)*100))
+
+all_place_vets_by_disab_stat7 <- all_place_vets_by_disab_stat6 %>% mutate(across(20:25, ~ (.x/all_place_vets_by_disab_stat6$est_tot_65nover_vet)*100))
+
+all_place_vets_by_disab_stat8 <- all_place_vets_by_disab_stat7 %>% mutate(across(27:32, ~ (.x/all_place_vets_by_disab_stat7$est_tot_65nover_nonvet)*100))
+
+names(all_place_vets_by_disab_stat8)[c(-1:-4,-11,-18:-19,-26)] <- gsub("est_tot", "pct", names(all_place_vets_by_disab_stat8)[c(-1:-4,-11,-18:-19,-26)]) %>%  print()
+
+my_state_place_vets_by_disab_stat_pcts <- all_place_vets_by_disab_stat8 %>% filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+my_state_place_vets_by_disab_stat_rank <- all_place_vets_by_disab_stat8 %>%  mutate(across(c(5:10,12:17,20:25,27:32), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  filter(str_detect(name, my_state_regexp_string ))  %>%  print()
+
+```
+
+
+
+```{r median_income_by_veteran_status_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Let's switch now to an entirely different metric, median income by veteran status. This is ACS Table B21004.
+
+# B21004_001 is the first variable for median income by veteran status. The variables will count up to _007. Let's try something different this time. Instead of typing, or cutting-and-pasting, all those variables, let's make the computer generate the list of variables for us.  
+
+our_next_table <- "B21004"
+
+i <- 1
+
+mylist <- c()
+
+while (i<=7) {
+    mylist <- c(mylist, i)
+    i <- i+1
+    
+}
+
+# You can see your list by printing it with the next line of code. 
+# mylist
+
+# actually save the list the  way we want it
+jp_list <- paste(our_next_table, "_", str_pad(mylist, 3, pad="0"), sep="") %>%  print()
+
+# Now, let's ping tidycensus again 
+us_vets_mhhi <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+mhhi_var <- v19 %>%  filter(str_detect(concept, "VETERAN")&str_detect(name, our_next_table)) %>%  print()
+
+us_vets_mhhi2 <- merge(x = us_vets_mhhi, y=mhhi_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+head(us_vets_mhhi2)
+
+us_vets_mhhi3 <- us_vets_mhhi2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+us_vets_mhhi4 <- janitor::clean_names(us_vets_mhhi3) %>%  select(-geoid) %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("estimate", "est", colnames(us_vets_mhhi4)) %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("total", "tot", colnames(us_vets_mhhi4))  %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("median_income", "medinc", colnames(us_vets_mhhi4)) %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("nonveteran", "nonvet", colnames(us_vets_mhhi4)) %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("veteran", "vet", colnames(us_vets_mhhi4)) %>%  print()
+
+colnames(us_vets_mhhi4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(us_vets_mhhi4)) %>%  print()
+
+us_vets_mhhi_amounts <- us_vets_mhhi4
+
+my_state_vets_mhhi_amounts <- us_vets_mhhi_amounts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+us_vets_mhhi5 <- us_vets_mhhi4 %>% mutate(across(3:8, ~ (.x/us_vets_mhhi4$est_medinc_in12mos19infladj_tot)*100))
+                                                            
+us_vets_mhhi_pcts <- us_vets_mhhi5
+
+names(us_vets_mhhi_pcts)[c(-1:-2)] <- gsub("est_medinc", "pct", names(us_vets_mhhi_pcts)[c(-1:-2)]) %>%  print()
+
+```
+
+
+```{r median_income_by_veteran_status_state, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, let's look at the state-level data for median income by veteran status. 
+all_states_vets_mhhi <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+mhhi_var <- v19 %>% filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_states_vets_mhhi2 <- merge(x = all_states_vets_mhhi, y=mhhi_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_states_vets_mhhi3 <- all_states_vets_mhhi2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_states_vets_mhhi4 <- janitor::clean_names(all_states_vets_mhhi3) %>%  select(-geoid) %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("estimate", "est", colnames(all_states_vets_mhhi4)) %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("total", "tot", colnames(all_states_vets_mhhi4))  %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("median_income", "medinc", colnames(all_states_vets_mhhi4)) %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("nonveteran", "nonvet", colnames(all_states_vets_mhhi4)) %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("veteran", "vet", colnames(all_states_vets_mhhi4)) %>%  print()
+
+colnames(all_states_vets_mhhi4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_states_vets_mhhi4)) %>%  print()
+
+all_states_vets_mhhi_amounts <- all_states_vets_mhhi4
+
+my_state_vets_mhhi_amounts <- all_states_vets_mhhi_amounts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_states_vets_mhhi5 <- all_states_vets_mhhi4 %>% mutate(across(3:8, ~ (.x/all_states_vets_mhhi4$est_medinc_in12mos19infladj_tot)*100)) %>% print()
+                                                            
+all_states_vets_mhhi_pcts <- all_states_vets_mhhi5
+
+my_state_vets_mhhi_pcts <- all_states_vets_mhhi_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_states_vets_mhhi_rank <- all_states_vets_mhhi5 %>%  mutate(across(3:8, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  print()
+
+my_state_vets_mhhi_rank <- all_states_vets_mhhi_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+
+```
+
+
+```{r median_income_by_veteran_status_county, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, let's ping tidycensus again ...
+all_county_vets_mhhi <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+mhhi_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_county_vets_mhhi2 <- merge(x = all_county_vets_mhhi, y=mhhi_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_county_vets_mhhi3 <- all_county_vets_mhhi2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_county_vets_mhhi4 <- janitor::clean_names(all_county_vets_mhhi3) %>%  select(-geoid) %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("estimate", "est", colnames(all_county_vets_mhhi4)) %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("total", "tot", colnames(all_county_vets_mhhi4))  %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("median_income", "medinc", colnames(all_county_vets_mhhi4)) %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("nonveteran", "nonvet", colnames(all_county_vets_mhhi4)) %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("veteran", "vet", colnames(all_county_vets_mhhi4)) %>%  print()
+
+colnames(all_county_vets_mhhi4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_county_vets_mhhi4)) %>%  print()
+
+all_county_vets_mhhi_amounts <- all_county_vets_mhhi4
+
+my_state_vets_mhhi_amounts <- all_county_vets_mhhi_amounts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_county_vets_mhhi5 <- all_county_vets_mhhi4 %>% mutate(across(3:8, ~ (.x/all_county_vets_mhhi4$est_medinc_in12mos19infladj_tot)*100))
+
+all_county_vets_mhhi_pcts <- all_county_vets_mhhi5
+
+my_state_county_vets_mhhi_pcts <- all_county_vets_mhhi_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_county_vets_mhhi_rank <- all_county_vets_mhhi5 %>%  mutate(across(3:8, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  print()
+
+my_state_county_vets_mhhi_rank <- all_county_vets_mhhi_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+```
+
+
+```{r median_income_by_veteran_status_place, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to ping tidycensus again ...
+all_place_vets_mhhi <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+mhhi_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_place_vets_mhhi2 <- merge(x = all_place_vets_mhhi, y=mhhi_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_place_vets_mhhi3 <- all_place_vets_mhhi2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_place_vets_mhhi4 <- janitor::clean_names(all_place_vets_mhhi3) %>%  select(-geoid) %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("estimate", "est", colnames(all_place_vets_mhhi4)) %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("total", "tot", colnames(all_place_vets_mhhi4))  %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("median_income", "medinc", colnames(all_place_vets_mhhi4)) %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("nonveteran", "nonvet", colnames(all_place_vets_mhhi4)) %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("veteran", "vet", colnames(all_place_vets_mhhi4)) %>%  print()
+
+colnames(all_place_vets_mhhi4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_place_vets_mhhi4)) %>%  print()
+
+all_place_vets_mhhi_amounts <- all_place_vets_mhhi4
+
+my_state_vets_mhhi_amounts <- all_place_vets_mhhi_amounts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_place_vets_mhhi5 <- all_place_vets_mhhi4 %>% mutate(across(3:8, ~ (.x/all_place_vets_mhhi4$est_medinc_in12mos19infladj_tot)*100))
+
+all_place_vets_mhhi_pcts <- all_place_vets_mhhi5
+
+my_state_place_vets_mhhi_pcts <- all_place_vets_mhhi_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_place_vets_mhhi_rank <- all_place_vets_mhhi5 %>%  mutate(across(3:8, ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>%  print()
+
+my_state_place_vets_mhhi_rank <- all_place_vets_mhhi_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+```
+
+
+```{r veterans_in_the_labor_force_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# OK, now let's switch to looking at vets in the labor force. This will be ACS Table B21005.
+
+#	The first variable is B21005_001. We're going to count all the way up to _034. So we'll use our loop thingy again. 
+
+our_next_table <- "B21005"
+
+# Use while loop ...  
+
+# Set i equal to 1
+i <- 1
+
+# Make an empty list
+mylist <- c()
+
+# Now make it count
+while (i<=34) {
+    mylist <- c(mylist, i)
+    i <- i+1
+    
+}
+
+# You can check your list here
+# mylist
+
+# actually save the list the  way we want it
+jp_list <- paste(our_next_table, "_", str_pad(mylist, 3, pad="0"), sep="") %>%  print()
+
+us_vets_in_labor_force <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+labor_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+us_vets_in_labor_force2 <- merge(x = us_vets_in_labor_force, y=labor_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+us_vets_in_labor_force3 <- us_vets_in_labor_force2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+us_vets_in_labor_force4 <- janitor::clean_names(us_vets_in_labor_force3) %>%  select(-geoid) %>%  print()
+
+gsub("estimate", "est", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("estimate", "est", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("total", "tot", colnames(us_vets_in_labor_force4))  %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("median_income", "medinc", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("18_to_34_years", "18t34", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("35_to_54_years", "35t54", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("nonveteran", "nonvet", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("veteran", "vet", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("not_in_labor_force", "notin_labfor", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("unemployed", "unemp", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("employed", "emp", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("55_to_64_years", "55t64", colnames(us_vets_in_labor_force4)) %>%  print()
+
+colnames(us_vets_in_labor_force4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(us_vets_in_labor_force4)) %>%  print()
+
+us_vets_in_labor_force_totals <- us_vets_in_labor_force4
+
+us_vets_in_labor_force5 <- us_vets_in_labor_force4 %>% mutate(across(5:8, ~ (.x/us_vets_in_labor_force4$est_tot_18t34_vet)*100)) %>%  print()
+
+us_vets_in_labor_force6 <- us_vets_in_labor_force5 %>% mutate(across(10:13, ~ (.x/us_vets_in_labor_force5$est_tot_18t34_nonvet)*100)) %>%  print()
+
+us_vets_in_labor_force7 <- us_vets_in_labor_force6 %>% mutate(across(16:19, ~ (.x/us_vets_in_labor_force6$est_tot_35t54_vet)*100)) %>%  print()
+
+us_vets_in_labor_force8 <- us_vets_in_labor_force7 %>% mutate(across(21:24, ~ (.x/us_vets_in_labor_force7$est_tot_35t54_nonvet)*100)) %>%  print()
+
+us_vets_in_labor_force9 <- us_vets_in_labor_force8 %>% mutate(across(27:30, ~ (.x/us_vets_in_labor_force8$est_tot_55t64_vet)*100)) %>%  print()
+
+us_vets_in_labor_force10 <- us_vets_in_labor_force9 %>% mutate(across(32:35, ~ (.x/us_vets_in_labor_force9$est_tot_55t64_nonvet)*100)) %>%  print()
+
+names(us_vets_in_labor_force10)[c(-1:-4,-9,-14:-15,-20,-25:-26,-31)] <- gsub("est_tot", "pct", names(us_vets_in_labor_force10)[c(-1:-4,-9,-14:-15,-20,-25:-26,-31)]) %>%  print()
+
+us_vets_in_labor_force_pcts <- us_vets_in_labor_force10
+
+```
+
+```{r veterans_in_the_labor_force_state, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to the state-level data
+
+all_state_vets_in_labor_force <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+labor_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_state_vets_in_labor_force2 <- merge(x = all_state_vets_in_labor_force, y=labor_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_state_vets_in_labor_force3 <- all_state_vets_in_labor_force2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_state_vets_in_labor_force4 <- janitor::clean_names(all_state_vets_in_labor_force3) %>%  select(-geoid) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("estimate", "est", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("total", "tot", colnames(all_state_vets_in_labor_force4))  %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("18_to_34_years", "18t34", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("35_to_54_years", "35t54", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("nonveteran", "nonvet", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("veteran", "vet", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("not_in_labor_force", "notin_labfor", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("unemployed", "unemp", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("employed", "emp", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("55_to_64_years", "55t64", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+colnames(all_state_vets_in_labor_force4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_state_vets_in_labor_force4)) %>%  print()
+
+all_state_vets_in_labor_force5 <- all_state_vets_in_labor_force4 %>% mutate(across(5:8, ~ (.x/all_state_vets_in_labor_force4$est_tot_18t34_vet)*100)) %>%  print()
+
+all_state_vets_in_labor_force6 <- all_state_vets_in_labor_force5 %>% mutate(across(10:13, ~ (.x/all_state_vets_in_labor_force5$est_tot_18t34_nonvet)*100)) %>%  print()
+
+all_state_vets_in_labor_force7 <- all_state_vets_in_labor_force6 %>% mutate(across(16:19, ~ (.x/all_state_vets_in_labor_force6$est_tot_35t54_vet)*100)) %>%  print()
+
+all_state_vets_in_labor_force8 <- all_state_vets_in_labor_force7 %>% mutate(across(21:24, ~ (.x/all_state_vets_in_labor_force7$est_tot_35t54_nonvet)*100)) %>%  print()
+
+all_state_vets_in_labor_force9 <- all_state_vets_in_labor_force8 %>% mutate(across(27:30, ~ (.x/all_state_vets_in_labor_force8$est_tot_55t64_vet)*100)) %>%  print()
+
+all_state_vets_in_labor_force10 <- all_state_vets_in_labor_force9 %>% mutate(across(32:35, ~ (.x/all_state_vets_in_labor_force9$est_tot_55t64_nonvet)*100)) %>%  print()
+
+names(all_state_vets_in_labor_force5)[c(-1:-4,-9,-14:-15,-20,-25:-26,-31)] <- gsub("est_tot", "pct", names(all_state_vets_in_labor_force5)[c(-1:-4,-9,-14:-15,-20,-25:-26,-31)]) %>%  print()
+
+all_state_vets_in_labor_force_rank <- all_state_vets_in_labor_force5 %>%  mutate(across(c(5:8,10:13,16:19,21:24,27:30,32:35), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+my_state_vets_in_labor_force_rank <- all_state_vets_in_labor_force_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+```
+
+```{r veterans_in_the_labor_force_county, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, on to county-level data. 
+
+all_county_vets_in_labor_force <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+labor_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_county_vets_in_labor_force2 <- merge(x = all_county_vets_in_labor_force, y=labor_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_county_vets_in_labor_force3 <- all_county_vets_in_labor_force2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_county_vets_in_labor_force4 <- janitor::clean_names(all_county_vets_in_labor_force3) %>%  select(-geoid) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("estimate", "est", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("total", "tot", colnames(all_county_vets_in_labor_force4))  %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("18_to_34_years", "18t34", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("35_to_54_years", "35t54", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("nonveteran", "nonvet", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("veteran", "vet", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("not_in_labor_force", "notin_labfor", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("unemployed", "unemp", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("employed", "emp", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("55_to_64_years", "55t64", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+colnames(all_county_vets_in_labor_force4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_county_vets_in_labor_force4)) %>%  print()
+
+all_county_vets_in_labor_force5 <- all_county_vets_in_labor_force4 %>% mutate(across(5:8, ~ (.x/all_county_vets_in_labor_force4$est_tot_18t34_vet)*100)) %>%  print()
+
+all_county_vets_in_labor_force6 <- all_county_vets_in_labor_force5 %>% mutate(across(10:13, ~ (.x/all_county_vets_in_labor_force5$est_tot_18t34_nonvet)*100)) %>%  print()
+
+all_county_vets_in_labor_force7 <- all_county_vets_in_labor_force6 %>% mutate(across(16:19, ~ (.x/all_county_vets_in_labor_force6$est_tot_35t54_vet)*100)) %>%  print()
+
+all_county_vets_in_labor_force8 <- all_county_vets_in_labor_force7 %>% mutate(across(21:24, ~ (.x/all_county_vets_in_labor_force7$est_tot_35t54_nonvet)*100)) %>%  print()
+
+all_county_vets_in_labor_force9 <- all_county_vets_in_labor_force8 %>% mutate(across(27:30, ~ (.x/all_county_vets_in_labor_force8$est_tot_55t64_vet)*100)) %>%  print()
+
+all_county_vets_in_labor_force10 <- all_county_vets_in_labor_force9 %>% mutate(across(32:35, ~ (.x/all_county_vets_in_labor_force9$est_tot_55t64_nonvet)*100)) %>%  print()
+
+all_county_vets_in_labor_force_rank <- all_county_vets_in_labor_force10 %>%  mutate(across(c(5:8,10:13,16:19,21:24,27:30,32:35), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+my_state_county_vets_in_labor_force_rank <- all_county_vets_in_labor_force_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+all_county_vets_in_labor_force_rank <- all_county_vets_in_labor_force5 %>%  mutate(across(c(2:8), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+my_state_county_vets_in_labor_force_rank <- all_county_vets_in_labor_force_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+```
+
+```{r veterans_in_the_labor_force_places, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, let's look at place-level data for our vets in the labor force. 
+
+all_place_vets_in_labor_force <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+labor_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_place_vets_in_labor_force2 <- merge(x = all_place_vets_in_labor_force, y=labor_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+
+all_place_vets_in_labor_force3 <- all_place_vets_in_labor_force2 %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_place_vets_in_labor_force4 <- janitor::clean_names(all_place_vets_in_labor_force3) %>%  select(-geoid) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("estimate", "est", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("total", "tot", colnames(all_place_vets_in_labor_force4))  %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("18_to_34_years", "18t34", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("35_to_54_years", "35t54", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("nonveteran", "nonvet", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("veteran", "vet", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("not_in_labor_force", "notin_labfor", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("unemployed", "unemp", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("employed", "emp", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("55_to_64_years", "55t64", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+colnames(all_place_vets_in_labor_force4) <- gsub("in_the_past_12_months_in_2019_inflation_adjusted_dollars", "in12mos19infladj", colnames(all_place_vets_in_labor_force4)) %>%  print()
+
+all_place_vets_in_labor_force_totals <- all_place_vets_in_labor_force4 %>% print()
+
+my_state_places_vets_in_labor_force_totals <- all_place_vets_in_labor_force_totals %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_place_vets_in_labor_force5 <- all_place_vets_in_labor_force4 %>% mutate(across(4:13, ~ (.x/all_place_vets_in_labor_force4$est_tot_18t34)*100)) %>%  print()
+
+all_place_vets_in_labor_force6 <- all_place_vets_in_labor_force5 %>% mutate(across(15:24, ~ (.x/all_place_vets_in_labor_force5$est_tot_35t54)*100)) %>%  print()
+
+all_place_vets_in_labor_force7 <- all_place_vets_in_labor_force6 %>% mutate(across(26:35, ~ (.x/all_place_vets_in_labor_force6$est_tot_55t64)*100)) %>%  print()
+
+names(all_place_vets_in_labor_force7)[c(-1:-3,-14:-25)] <- gsub("est_tot", "pct", names(all_place_vets_in_labor_force7)[c(-1:-3,-14:-25)]) %>%  print()
+
+my_state_places_vets_in_labor_force_pcts <- all_place_vets_in_labor_force7 %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_place_vets_in_labor_force_rank1 <- all_place_vets_in_labor_force7 %>%  mutate(across(c(4:13), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+all_place_vets_in_labor_force_rank2 <- all_place_vets_in_labor_force_rank1 %>%  mutate(across(c(15:24), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+all_place_vets_in_labor_force_rank3 <- all_place_vets_in_labor_force_rank2 %>%  mutate(across(c(26:35), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+names(all_place_vets_in_labor_force_rank3)[c(-1:-3,-14:-25)] <- gsub("pct", "rank_nationally", names(all_place_vets_in_labor_force_rank3)[c(-1:-3,-14:-25)]) %>%  print()
+
+my_state_places_vets_in_labor_force_rank <- all_place_vets_in_labor_force_rank3 %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+
+```
+
+
+
+```{r service_connected_disabilities_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# OK, now let's look at the share of the veteran population that has a service-connected diability. This is ACS Table B21100.
+
+#	Our first variable is B21100_001. We're going to count up to _009. We'll use our loop thingy again. 
+
+our_next_table <- "B21100"
+
+i <- 1
+
+mylist <- c()
+
+while (i<=9) {
+    mylist <- c(mylist, i)
+    i <- i+1
+    
+}
+
+# You can check your list here
+# mylist
+
+# actually save the list the  way we want it
+jp_list <- paste(our_next_table, "_", str_pad(mylist, 3, pad="0"), sep="") %>%  print()
+
+# Now, we use tidycensus to ping the Census API again. 
+us_vets_servdis <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+servdis_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+us_servdis <- merge(x = us_vets_servdis, y=servdis_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+
+us_servdis2 <- us_servdis %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+us_servdis3 <- janitor::clean_names(us_servdis2) %>%  select(-geoid) %>%  print()
+
+us_servdis4 <- data.frame(us_servdis3) %>% print()
+
+colnames(us_servdis4) <- gsub("estimate", "Est.", colnames(us_servdis4)) %>%  print()
+
+colnames(us_servdis4) <- gsub("service_connected_disability_rating", "service-connected disability rating", colnames(us_servdis4)) %>%  print()
+
+colnames(us_servdis4) <- gsub("has_a_", "has ", colnames(us_servdis4)) %>%  print()
+
+colnames(us_servdis4) <- gsub("Percent", "Pct.", colnames(us_servdis4)) %>%  print()
+
+colnames(us_servdis4) <- gsub("_", " ", colnames(us_servdis4)) %>%  print()
+
+us_servdis5 <- us_servdis4 %>% select(-name) %>% print()
+
+us_servdis_totals <- t(us_servdis5) %>% print()
+
+colnames(us_servdis_totals) <- c("Value")
+
+us_servdis_totals <- data.frame(us_servdis_totals)
+
+us_servdis_totals$Item <- rownames(us_servdis_totals)
+
+us_servdis_totals <- us_servdis_totals[,c(2,1)]
+
+us_servdis5 <- us_servdis4 %>% mutate(across(3:10, ~ (.x/us_servdis4$`Est. total`)*100)) %>%  print()
+
+names(us_servdis5)[c(-1:-2)] <- gsub("estimate_total", "Pct.", names(us_servdis5)[c(-1:-2)]) 
+
+colnames(us_servdis5) <- gsub("_", " ", colnames(us_servdis5)) %>%  print()
+
+us_servdis6 <- us_servdis5%>% select(-name) %>% print()
+
+us_servdis7 <- t(us_servdis6)
+
+us_servdis8 <- data.frame(us_servdis7) %>% print()
+
+us_servdis8$Item <- rownames(us_servdis8) %>% print()
+
+us_servdis9 <- us_servdis8[,c(2,1)] %>% print()
+
+colnames(us_servdis9) <- c("Item", "Value") %>% print()
+
+us_servdis10 <- us_servdis9 %>% filter(!str_detect(Item, "name")) %>% print()
+
+rownames(us_servdis10) <-NULL
+
+us_servdis_pcts <- us_servdis10
+
+```
+
+
+```{r service_connected_disabilities_state, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Next, to our state-level data. 
+all_states_vets_servdis <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+servdis_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_states_servdis <- merge(x = all_states_vets_servdis, y=servdis_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_states_servdis2 <- all_states_servdis %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_states_servdis3 <- janitor::clean_names(all_states_servdis2) %>%  select(-geoid) %>%  print()
+
+colnames(all_states_servdis3) <- gsub("estimate", "Est.", colnames(all_states_servdis3)) %>%  print()
+
+colnames(all_states_servdis3) <- gsub("service_connected_disability_rating", "service-connected_disability_rating", colnames(all_states_servdis3)) %>%  print()
+
+colnames(all_states_servdis3) <- gsub("has_a_", "has_", colnames(all_states_servdis3)) %>%  print()
+
+colnames(all_states_servdis3) <- gsub("_", " ", colnames(all_states_servdis3)) %>%  print()
+
+all_states_servdis_totals <- all_states_servdis3 %>%  print()
+
+my_state_servdis_totals1 <- all_states_servdis_totals %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+my_state_servdis_totals2 <- my_state_servdis_totals1 %>% select(-name) %>% print()
+
+my_state_servdis_totals3 <- t(my_state_servdis_totals2)
+
+my_state_servdis_totals4 <- data.frame(my_state_servdis_totals3)
+
+my_state_servdis_totals4$Item <- rownames(my_state_servdis_totals4)
+
+my_state_servdis_totals5 <- my_state_servdis_totals4[,c(2,1)] %>% print()
+
+colnames(my_state_servdis_totals5) <- c("Item", "Value")
+
+rownames(my_state_servdis_totals5) <- NULL
+
+my_state_servdis_totals <- my_state_servdis_totals5
+
+all_states_servdis4 <- all_states_servdis3 %>% mutate(across(3:10, ~ (.x/all_states_servdis3$`Est. total`)*100)) %>%  print()
+
+names(all_states_servdis4)[c(-1:-2)] <- gsub("Est. total", "Pct.", names(all_states_servdis4)[c(-1:-2)]) %>%  print()
+
+all_states_servdis_pcts <- all_states_servdis4
+
+my_state_servdis_pcts <- all_states_servdis_pcts  %>%  filter(str_detect(name, my_state_regexp_string)) %>%  select(-name) %>% print()
+
+my_state_servdis_pcts1 <- t(my_state_servdis_pcts) %>% print()
+
+my_state_servdis_pcts2 <- data.frame(my_state_servdis_pcts1)
+
+colnames(my_state_servdis_pcts2) <- c("Value")
+
+my_state_servdis_pcts2$Item <- rownames(my_state_servdis_pcts2)
+
+my_state_servdis_pcts2<- my_state_servdis_pcts2[,c(2,1)]
+
+rownames(my_state_servdis_pcts2) <- NULL
+
+my_state_servdis_pcts <- my_state_servdis_pcts2
+
+all_states_servdis_rank <- all_states_servdis_pcts %>%  mutate(across(c(3:10), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% select(-`Est. total`) %>% print()
+
+my_state_servdis_rank1 <- all_states_servdis_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% select(-name) %>% print()
+
+my_state_servdis_rank2 <- t(my_state_servdis_rank1)
+
+my_state_servdis_rank3 <- data.frame(my_state_servdis_rank2)
+
+my_state_servdis_rank3$Item <- rownames(my_state_servdis_rank3)
+
+my_state_servdis_rank4 <- my_state_servdis_rank3[,c(2,1)]
+
+colnames(my_state_servdis_rank4) <- c("Item", "Rank")
+
+rownames(my_state_servdis_rank4) <- NULL
+
+my_state_servdis_rank <- my_state_servdis_rank4
+
+rownames(us_servdis_totals)<-NULL
+
+```
+
+## Service-connected disabilities
+
+Note that the total here, and the denominator by which all these percentages were calculated, is the total number of U.S. civilian veterans 18 years and over. That's about 18 million people. 
+
+### In the U.S.: Raw totals
+`r knitr::kable(us_servdis_totals, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+
+### In the U.S.: By percentages
+`r knitr::kable(us_servdis_pcts, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+## In `r my_state`
+
+Note that the total here, and the denominator by which all these percentages were calculated, is the total number of U.S. civilian veterans 18 years and over. That's about 600,000 people. 
+
+### In `r my_state`: Raw totals
+`r knitr::kable(my_state_servdis_totals, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+### In `r my_state`: By percentages
+`r knitr::kable(my_state_servdis_pcts, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+### In `r my_state`: Rank among the states
+`r knitr::kable(my_state_servdis_rank, digits=1, col.names=c("Item","Value"), format.args = list(big.mark = ",", scientific = FALSE))`
+
+
+```{r service_connected_disabilities_county, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to county-level data on service-connected disabilities. 
+
+all_county_vets_servdis <- get_acs(geography = "county", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+servdis_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_county_servdis <- merge(x = all_county_vets_servdis, y=servdis_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+
+all_county_servdis2 <- all_county_servdis %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_county_servdis3 <- janitor::clean_names(all_county_servdis2) %>%  select(-geoid) %>%  print()
+
+colnames(all_county_servdis3) <- gsub("estimate", "Est.", colnames(all_county_servdis3)) %>%  print()
+
+colnames(all_county_servdis3) <- gsub("service_connected_disability_rating", "service-connected_disability_rating", colnames(all_county_servdis3)) %>%  print()
+
+colnames(all_county_servdis3) <- gsub("has_a_", "has_", colnames(all_county_servdis3)) %>%  print()
+
+rownames(all_county_servdis3) <- NULL
+
+all_county_servdis_totals <- all_county_servdis3
+
+all_county_servdis4 <- all_county_servdis3 %>% mutate(across(3:10, ~ (.x/all_county_servdis3$Est._total)*100)) %>%  print()
+
+names(all_county_servdis4)[c(-1:-2)] <- gsub("Est._total", "Pct.", names(all_county_servdis4)[c(-1:-2)]) %>%  print()
+
+rownames(all_county_servdis4) <- NULL
+
+all_county_servdis_pcts <- all_county_servdis4
+
+my_state_county_servdis_pcts1 <- all_county_servdis_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+my_state_county_servdis_pcts2 <- data.frame(my_state_county_servdis_pcts1)
+
+colnames(my_state_county_servdis_pcts2) <- gsub("_", " ", colnames(my_state_county_servdis_pcts2)) %>%  print()
+
+colnames(my_state_county_servdis_pcts2) <- gsub("service.connected", "service-connected", colnames(my_state_county_servdis_pcts2)) %>%  print()
+
+my_state_county_servdis_pcts2$Item <- rownames(my_state_county_servdis_pcts2)
+
+my_state_county_servdis_pcts3 <- my_state_county_servdis_pcts2[,c(1:4)]
+
+my_state_county_servdis_pcts3$`Pct. has service-connected disability rating`
+
+my_state_county_servdis_pcts4 <- my_state_county_servdis_pcts3[order(-my_state_county_servdis_pcts3$`Pct. has service-connected disability rating`),] 
+
+my_state_county_servdis_pcts_top5 <- my_state_county_servdis_pcts4 %>% slice_max(`Pct. has service-connected disability rating`, n=5) %>% print()
+
+all_county_servdis_rank <- all_county_servdis4 %>%  mutate(across(c(3:10), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+names(all_county_servdis_rank)[c(-1:-2)] <- gsub("Pct.", "Rank nationally", names(all_county_servdis_rank)[c(-1:-2)]) %>%  print()
+
+colnames(all_county_servdis_rank) <- gsub("_", " ", colnames(all_county_servdis_rank)) %>%  print()
+
+my_state_county_servdis_rank1 <- all_county_servdis_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+rownames(my_state_county_servdis_rank1) <- NULL
+
+my_state_county_servdis_rank_top5 <- my_state_county_servdis_rank1 %>% slice_min(`Rank nationally has service-connected disability rating`) %>% print()
+
+```
+
+### In `r my_state`: Counties with highest prevalence of service-connected disabilities
+
+`r knitr::kable(my_state_county_servdis_pcts_top5, digits=1, format.args = list(big.mark = ",", scientific = FALSE))`
+
+```{r service_connected_disabilities_place, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, we get down to place-level data on service-connected disabilities. 
+
+all_place_vets_servdis <- get_acs(geography = "place", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+servdis_var <- v19 %>%  filter(str_detect(concept, "VETERAN") & str_detect(name, our_next_table)) %>%  print()
+
+all_place_servdis <- merge(x = all_place_vets_servdis, y=servdis_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+
+all_place_servdis2 <- all_place_servdis %>% select(-concept, -variable, -moe) %>%  pivot_wider(names_from=label, values_from = estimate, names_sep="_") %>% print()
+
+all_place_servdis3 <- janitor::clean_names(all_place_servdis2) %>%  select(-geoid) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("estimate", "est", colnames(all_place_servdis3)) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("total", "tot", colnames(all_place_servdis3))  %>%  print()
+
+colnames(all_place_servdis3) <- gsub("service_connected_disability_rating", "servdis", colnames(all_place_servdis3)) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("has_a_", "has_", colnames(all_place_servdis3)) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("nonveteran", "nonvet", colnames(all_place_servdis3)) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("veteran", "vet", colnames(all_place_servdis3)) %>%  print()
+
+colnames(all_place_servdis3) <- gsub("percent", "pct", colnames(all_place_servdis3)) %>%  print()
+
+all_place_servdis_totals <- all_place_servdis3
+
+all_place_servdis4 <- all_place_servdis3 %>% mutate(across(3:10, ~ (.x/all_place_servdis3$est_tot)*100)) %>%  print()
+
+names(all_place_servdis4)[c(-1:-2)] <- gsub("est_tot", "pct", names(all_place_servdis4)[c(-1:-2)]) %>%  print()
+
+all_place_servdis_pcts <- all_place_servdis4
+
+my_state_place_servdis_pcts <- all_place_servdis_pcts %>%  filter(str_detect(name, my_state_regexp_string)) %>%  print()
+
+all_place_servdis_rank <- all_place_servdis4 %>%  mutate(across(c(3:10), ~ rank(-.x, na.last = TRUE, ties.method = c("min")))) %>% print()
+
+names(all_place_servdis_rank)[c(-1:-2)] <- gsub("pct", "rank_nationally", names(all_place_servdis_rank)[c(-1:-2)]) %>%  print()
+
+my_state_places_servdis_rank <- all_place_servdis_rank %>%  filter(str_detect(name, my_state_regexp_string)) %>% print()
+
+```
+
+
+
+```{r vet_status_by_race_national, eval=TRUE, echo=FALSE, include=FALSE}
+
+# our next table will be sex by age by vet status for the civilian population by race. This will be data from ACS Tables that start with C21001. There's a table for each race, and each table ends with a letter suffix. The variables for each table will count up from _001 to _015.
+
+# Next, to our first table. 
+table_white <- "C21001A"
+
+i <- 1
+
+mylist_white <- c()
+
+while (i<=15) {
+    mylist_white <- c(mylist_white, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_white
+
+# Now to create the table for Black veterans. 
+
+table_black <- "C21001B"
+
+i <- 1
+
+mylist_black <- c()
+
+while (i<=15) {
+    mylist_black <- c(mylist_black, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_black
+
+# C21001C is the table for American Indian and Alaska native vets.
+
+table_aian <- "C21001C"
+
+i <- 1
+
+mylist_aian <- c()
+
+while (i<=15) {
+    mylist_aian <- c(mylist_aian, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_aian
+
+# C21001D is the table for vets who are Asian alone. 
+
+table_asian <- "C21001D"
+
+i <- 1
+
+mylist_asian <- c()
+
+while (i<=15) {
+    mylist_asian <- c(mylist_asian, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_asian
+
+# C21001E is the table for veterans who are native Hawaiian or other Pacific Islander.
+
+table_nhpi <- "C21001E"
+
+i <- 1
+
+mylist_nhpi <- c()
+
+while (i<=15) {
+    mylist_nhpi <- c(mylist_nhpi, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_nhpi
+
+# C21001F is the table for vets who are some other race alone
+
+table_so <- "C21001F"
+
+i <- 1
+
+mylist_so <- c()
+
+while (i<=15) {
+    mylist_so <- c(mylist_so, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_so
+
+# C21001G is the table for vets who are of two or more races.
+
+table_two_or_more <- "C21001G"
+
+i <- 1
+
+mylist_two_or_more <- c()
+
+while (i<=15) {
+    mylist_two_or_more <- c(mylist_two_or_more, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_two_or_more
+
+# C21001H is the table for veterans who are white alone. 
+
+table_white_alone <- "C21001H"
+
+i <- 1
+
+mylist_white_alone <- c()
+
+while (i<=15) {
+    mylist_white_alone <- c(mylist_white_alone, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_white_alone
+
+# C21001I is the table for veterans who are Hispanic.
+
+table_hisp <- "C21001I"
+
+i <- 1
+
+mylist_hisp <- c()
+
+while (i<=15) {
+    mylist_hisp <- c(mylist_hisp, i)
+    i <- i+1
+    
+}
+
+# You can check your variables here. 
+# mylist_hisp
+
+# Now, to actually save the lists the  way we want it
+jp_list_white <- paste(table_white, "_", str_pad(mylist_white, 3, pad="0"), sep="") %>%  print()
+
+jp_list_black <- paste(table_black, "_", str_pad(mylist_black, 3, pad="0"), sep="") %>%  print()
+
+jp_list_aian <- paste(table_aian, "_", str_pad(mylist_aian, 3, pad="0"), sep="") %>%  print()
+
+jp_list_asian <- paste(table_asian, "_", str_pad(mylist_asian, 3, pad="0"), sep="") %>%  print()
+
+jp_list_nhpi<- paste(table_nhpi, "_", str_pad(mylist_nhpi, 3, pad="0"), sep="") %>%  print()
+
+jp_list_so <- paste(table_so, "_", str_pad(mylist_so, 3, pad="0"), sep="") %>%  print()
+
+jp_list_two_or_more <- paste(table_two_or_more, "_", str_pad(mylist_two_or_more, 3, pad="0"), sep="") %>%  print()
+
+jp_list_white_alone <- paste(table_white_alone, "_", str_pad(mylist_white_alone, 3, pad="0"), sep="") %>%  print()
+
+jp_list_hisp <- paste(table_hisp, "_", str_pad(mylist_hisp, 3, pad="0"), sep="") %>%  print()
+
+jp_list <- append(jp_list_white, jp_list_black) %>%  print()
+ 
+jp_list <- append(jp_list, jp_list_aian) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_asian) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_nhpi) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_so) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_two_or_more) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_white_alone) %>%  print()
+
+jp_list <-  append(jp_list, jp_list_hisp) %>%  print()
+
+# Now, to actually ping the API to pull down all these darn variables ... 
+us_vets_by_race <- get_acs(geography = "us", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+vets_by_race_var <- v19 %>%  filter(str_detect(concept, "VETERAN")&str_detect(name, "C21001A|C21001B|C21001C|C21001D|C21001E|C21001F|C21001G|C21001H|C21001I")) %>%  print()
+
+vets_by_race_var$concept <- gsub("SEX BY AGE BY VETERAN STATUS FOR THE CIVILIAN POPULATION 18 YEARS AND OVER", "", vets_by_race_var$concept)  %>%  print()
+
+vets_by_race_var$var_combined <- paste(vets_by_race_var$label, "_", vets_by_race_var$concept) %>%  print()
+
+us_vets_by_race <- merge(x = us_vets_by_race, y=vets_by_race_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+us_vets_by_race2 <- us_vets_by_race %>% select(-variable, -moe, -label, -concept) %>%  pivot_wider(names_from=var_combined, values_from = estimate, names_sep="_") %>% print()
+
+us_vets_by_race3 <- janitor::clean_names(us_vets_by_race2) %>%  select(-geoid) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("estimate", "est", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("total", "tot", colnames(us_vets_by_race3))  %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("has_a_", "has_", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("nonveteran", "nonvet", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("veteran", "vet", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("percent", "pct", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("18_to_64_years", "18t64", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("65_years_and_over", "65nover", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("not_hispanic_or_latino", "not_hisp", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("hispanic_or_latino", "hisp", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("native_hawaiian_and_other_pacific_islander_alone", "nhopi", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("black_or_african_american_alone", "blackalone", colnames(us_vets_by_race3)) %>%  print()
+
+colnames(us_vets_by_race3) <- gsub("american_indian_and_alaska_native", "aian", colnames(us_vets_by_race3)) %>%  print()
+
+us_vets_by_race_totals <- us_vets_by_race3
+
+us_vets_by_race4 <- us_vets_by_race3 %>% mutate(across(3:16, ~ (.x/us_vets_by_race3$est_tot_white_alone)*100)) %>%  print()
+
+us_vets_by_race5 <- us_vets_by_race4 %>% mutate(across(18:31, ~ (.x/us_vets_by_race4$est_tot_blackalone)*100)) %>%  print()
+
+us_vets_by_race6 <- us_vets_by_race5 %>% mutate(across(33:46, ~ (.x/us_vets_by_race5$est_tot_aian_alone)*100)) %>%  print()
+
+us_vets_by_race7 <- us_vets_by_race6 %>% mutate(across(48:61, ~ (.x/us_vets_by_race6$est_tot_asian_alone)*100)) %>%  print()
+
+us_vets_by_race8 <- us_vets_by_race7 %>% mutate(across(63:76, ~ (.x/us_vets_by_race7$est_tot_nhopi)*100)) %>%  print()
+
+us_vets_by_race9 <- us_vets_by_race8 %>% mutate(across(78:91, ~ (.x/us_vets_by_race8$est_tot_some_other_race_alone)*100)) %>%  print()
+
+us_vets_by_race10 <- us_vets_by_race9 %>% mutate(across(93:106, ~ (.x/us_vets_by_race9$est_tot_two_or_more_races)*100)) %>%  print()
+
+us_vets_by_race11 <- us_vets_by_race10 %>% mutate(across(108:121, ~ (.x/us_vets_by_race10$est_tot_white_alone_not_hisp)*100)) %>%  print()
+
+us_vets_by_race12 <- us_vets_by_race11 %>% mutate(across(123:136, ~ (.x/us_vets_by_race11$est_tot_hisp)*100)) %>%  print()
+
+names(us_vets_by_race12)[c(-1,-2,-17,-32,-47,-62,-77,-92,-107,-122)] <- gsub("est_tot", "pct", names(us_vets_by_race12)[c(-1,-2,-17,-32,-47,-62,-77,-92,-107,-122)]) %>%  print()
+
+us_vets_by_race_percentages <- us_vets_by_race12
+
+```
+
+
+```{r vet_status_states, eval=TRUE, echo=FALSE, include=FALSE}
+
+# Now, to veteran status by state. 
+all_states_vets_by_race <- get_acs(geography = "state", year = our_year, survey = "acs5", variables = jp_list, geometry = FALSE)  %>%  print()
+
+all_states_vets_by_race <- merge(x = all_states_vets_by_race, y=vets_by_race_var, by.x = "variable", by.y = "name", all = FALSE) %>%  print()
+  
+all_states_vets_by_race2 <- all_states_vets_by_race %>% select(-variable, -moe, -label, -concept) %>%  pivot_wider(names_from=var_combined, values_from = estimate, names_sep="_") %>% print()
+
+all_states_vets_by_race3 <- janitor::clean_names(all_states_vets_by_race2) %>%  select(-geoid) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("estimate", "est", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("total", "tot", colnames(all_states_vets_by_race3))  %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("has_a_", "has_", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("nonveteran", "nonvet", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("veteran", "vet", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("percent", "pct", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("18_to_64_years", "18t64", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("65_years_and_over", "65nover", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("not_hispanic_or_latino", "not_hisp", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("hispanic_or_latino", "hisp", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("native_hawaiian_and_other_pacific_islander_alone", "nhopi_alone", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("black_or_african_american_alone", "blackalone", colnames(all_states_vets_by_race3)) %>%  print()
+
+colnames(all_states_vets_by_race3) <- gsub("american_indian_and_alaska_native", "aian", colnames(all_states_vets_by_race3)) %>%  print()
+
+all_states_vets_by_race_totals <- all_states_vets_by_race3
+
+all_states_vets_by_race4 <- all_states_vets_by_race3 %>% mutate(across(3:16, ~ (.x/all_states_vets_by_race3$est_tot_white_alone)*100)) %>%  print()
+
+all_states_vets_by_race5 <- all_states_vets_by_race4 %>% mutate(across(18:31, ~ (.x/all_states_vets_by_race4$est_tot_blackalone)*100)) %>%  print()
+
+all_states_vets_by_race6 <- all_states_vets_by_race5 %>% mutate(across(33:46, ~ (.x/all_states_vets_by_race5$est_tot_aian_alone)*100)) %>%  print()
+
+all_states_vets_by_race7 <- all_states_vets_by_race6 %>% mutate(across(48:61, ~ (.x/all_states_vets_by_race6$est_tot_asian_alone)*100)) %>%  print()
+
+all_states_vets_by_race8 <- all_states_vets_by_race7 %>% mutate(across(63:76, ~ (.x/all_states_vets_by_race7$est_tot_nhopi_alone)*100)) %>%  print()
+
+all_states_vets_by_race9 <- all_states_vets_by_race8 %>% mutate(across(78:91, ~ (.x/all_states_vets_by_race8$est_tot_some_other_race_alone)*100)) %>%  print()
+
+all_states_vets_by_race10 <- all_states_vets_by_race9 %>% mutate(across(93:106, ~ (.x/all_states_vets_by_race9$est_tot_two_or_more_races)*100)) %>%  print()
+
+all_states_vets_by_race11 <- all_states_vets_by_race10 %>% mutate(across(108:121, ~ (.x/all_states_vets_by_race10$est_tot_white_alone_not_hisp)*100)) %>%  print()
+
+all_states_vets_by_race12 <- all_states_vets_by_race11 %>% mutate(across(123:136, ~ (.x/all_states_vets_by_race11$est_tot_hisp)*100)) %>%  print()
+
+names(all_states_vets_by_race12)[c(-1,-2,-17,-32,-47,-62,-77,-92,-107,-122)] <- gsub("est_tot", "pct", names(all_states_vets_by_race12)[c(-1,-2,-17,-32,-47,-62,-77,-92,-107,-122)]) %>%  print()
+
+all_states_vets_by_race_percentages <- all_states_vets_by_race12
+
+my_state_vets_by_race_percentages <- all_states_vets_by_race_percentages %>%  filter(str_detect(name, my_state_regexp)) %>%  print()
+
+
+```
