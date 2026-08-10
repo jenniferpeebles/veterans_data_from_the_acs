@@ -1,0 +1,40 @@
+# Secrets and local environment files
+.Renviron
+.renviron
+.env
+.env.*
+!.env.example
+!.Renviron.example
+
+# R and RStudio session files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# Rendered and temporary files
+*_cache/
+*_files/
+.knit.md
+.utf8.md
+
+# Regenerable pipeline data and outputs
+data/raw/*
+data/processed/*
+outputs/charts/*
+outputs/data/*
+outputs/qa/*
+outputs/reports/*
+logs/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!outputs/charts/.gitkeep
+!outputs/data/.gitkeep
+!outputs/qa/.gitkeep
+!outputs/reports/.gitkeep
+!logs/.gitkeep
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
