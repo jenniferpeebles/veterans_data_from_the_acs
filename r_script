@@ -23,8 +23,31 @@ library(magrittr)
 library(tidycensus) # for getting Census data from the Census API
 options(scipen = 999) # this will stop R from putting big numbers into scientific notation. 
 
-# Plug in your Census API key here between the quote marks
-census_api_key("YOUR_CENSUS_API_KEY_GOES_HERE")
+# A Census API key is required. Never paste the key into this tracked script.
+#
+# 1. Request a free key: https://api.census.gov/data/key_signup.html
+# 2. Open your user-level .Renviron file from the R console:
+#      usethis::edit_r_environ(scope = "user")
+# 3. Add this line, replacing the placeholder with your real key:
+#      CENSUS_API_KEY=YOUR_ACTUAL_KEY_HERE
+# 4. Save the file and restart R so the new environment variable is loaded.
+#
+# Tutorial: https://walker-data.com/tidycensus/reference/census_api_key.html
+# Help opening .Renviron: https://usethis.r-lib.org/reference/edit.html
+#
+# This repository's .gitignore excludes .Renviron as an additional safeguard.
+census_api_key_value <- Sys.getenv("CENSUS_API_KEY")
+
+if (!nzchar(census_api_key_value)) {
+  stop(
+    paste(
+      "Census API key not found.",
+      "Store it as CENSUS_API_KEY in your user-level .Renviron file,",
+      "then restart R and run this report again."
+    ),
+    call. = FALSE
+  )
+}
 
 # This knit_hooks item includes the comma as the thousand separator in the inline code snippet numbers. 
 # More on this at https://stackoverflow.com/questions/18965637/set-global-thousand-separator-on-knitr
