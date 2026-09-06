@@ -272,7 +272,7 @@ U.S. Census Bureau American Community Survey, accessed through
 
 ## License
 
-This project is released under the MIT and CC0 licenses. See the license files in the repo for more information.
+This project is released under an MIT License. See the license file in the repo for more information.
 
 ## Special thanks
 This project uses a number of R packages, including the [tidyverse family of packages](https://tidyverse.tidyverse.org/index.html) created by [Hadley Wickham](https://hadley.nz/) et al and the [tidycensus](https://walker-data.com/tidycensus/) and [tigris](https://cran.r-project.org/web/packages/tigris/index.html) packages created by [Kyle Walker](https://walker-data.com/) that downloads and works with U.S. Census Bureau data and geographic files. I am also very grateful for packages including [janitor](https://cran.r-project.org/web/packages/janitor/index.html) and [sf](https://cran.r-project.org/web/packages/sf/index.html), among others. Thank you to the brilliant people behind these packages who wrote all that code and keep it maintained.
